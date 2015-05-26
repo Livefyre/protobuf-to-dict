@@ -2,10 +2,14 @@ from google.protobuf.message import Message
 from google.protobuf.descriptor import FieldDescriptor
 
 
-__all__ = ["protobuf_to_dict", "TYPE_CALLABLE_MAP", "dict_to_protobuf", "REVERSE_TYPE_CALLABLE_MAP"]
+__all__ = ["protobuf_to_dict", "TYPE_CALLABLE_MAP", "dict_to_protobuf", "REVERSE_TYPE_CALLABLE_MAP",
+           "TERSE_EXTENSIONS", "SHORT_EXTENSIONS", "FULL_EXTENSIONS"]
 
 
 EXTENSION_CONTAINER = '___X'
+TERSE_EXTENSIONS = 0
+SHORT_EXTENSIONS = 1
+FULL_EXTENSIONS = 2
 
 
 TYPE_CALLABLE_MAP = {
@@ -36,31 +40,40 @@ def enum_label_name(field, value):
     return field.enum_type.values_by_number[int(value)].name
 
 
-def protobuf_to_dict(pb, type_callable_map=TYPE_CALLABLE_MAP, use_enum_labels=False):
+def protobuf_to_dict(pb, type_callable_map=TYPE_CALLABLE_MAP, use_enum_labels=False, extensions=TERSE_EXTENSIONS):
     result_dict = {}
-    extensions = {}
+    extensions_ = {}
     for field, value in pb.ListFields():
-        type_callable = _get_field_value_adaptor(pb, field, type_callable_map, use_enum_labels)
+        type_callable = _get_field_value_adaptor(pb, field, type_callable_map, use_enum_labels, extensions)
         if field.label == FieldDescriptor.LABEL_REPEATED:
             type_callable = repeated(type_callable)
 
-        if field.is_extension:
-            extensions[str(field.number)] = type_callable(value)
+        if not field.is_extension:
+            result_dict[field.name] = type_callable(value)
             continue
+        if extensions == TERSE_EXTENSIONS:
+            extensions_[str(field.number)] = type_callable(value)
+        elif extensions == SHORT_EXTENSIONS:
+            result_dict[field.name] = type_callable(value)
+        else:
+            result_dict[field.full_name] = type_callable(value)
 
-        result_dict[field.name] = type_callable(value)
 
-    if extensions:
-        result_dict[EXTENSION_CONTAINER] = extensions
+    if extensions_:
+        if extensions == TERSE_EXTENSIONS:
+            result_dict[EXTENSION_CONTAINER] = extensions_
+        else:
+            result_dict.update(extensions_)
     return result_dict
 
 
-def _get_field_value_adaptor(pb, field, type_callable_map=TYPE_CALLABLE_MAP, use_enum_labels=False):
+def _get_field_value_adaptor(pb, field, type_callable_map=TYPE_CALLABLE_MAP, use_enum_labels=False, extensions=TERSE_EXTENSIONS):
     if field.type == FieldDescriptor.TYPE_MESSAGE:
         # recursively encode protobuf sub-message
         return lambda pb: protobuf_to_dict(pb,
             type_callable_map=type_callable_map,
-            use_enum_labels=use_enum_labels)
+            use_enum_labels=use_enum_labels,
+            extensions=extensions)
 
     if use_enum_labels and field.type == FieldDescriptor.TYPE_ENUM:
         return lambda value: enum_label_name(field, value)
@@ -86,7 +99,7 @@ def dict_to_protobuf(pb_klass_or_instance, values, type_callable_map=REVERSE_TYP
 
     :param pb_klass_or_instance: a protobuf message class, or an protobuf instance
     :type pb_klass_or_instance: a type or instance of a subclass of google.protobuf.message.Message
-    :param dict values: a dictionary of values. Repeated and nested values are 
+    :param dict values: a dictionary of values. Repeated and nested values are
        fully supported.
     :param dict type_callable_map: a mapping of protobuf types to callables for setting
        values on the target instance.
@@ -101,14 +114,23 @@ def dict_to_protobuf(pb_klass_or_instance, values, type_callable_map=REVERSE_TYP
 
 def _get_field_mapping(pb, dict_value, strict):
     field_mapping = []
+    short_names = {e.name: e for e in pb._extensions_by_name.values()}
     for key, value in dict_value.items():
         if key == EXTENSION_CONTAINER:
             continue
-        if key not in pb.DESCRIPTOR.fields_by_name:
-            if strict:
-                raise KeyError("%s does not have a field called %s" % (pb, key))
+        if key in pb.DESCRIPTOR.fields_by_name:
+            field_mapping.append((pb.DESCRIPTOR.fields_by_name[key], value, getattr(pb, key, None)))
             continue
-        field_mapping.append((pb.DESCRIPTOR.fields_by_name[key], value, getattr(pb, key, None)))
+        if key in pb._extensions_by_name:
+            field = pb._extensions_by_name[key]
+            field_mapping.append((field, value, pb.Extensions[field]))
+            continue
+        if key in short_names:
+            field = short_names[key]
+            field_mapping.append((field, value, pb.Extensions[field]))
+            continue
+        if strict:
+            raise KeyError("%s does not have a field called %s" % (pb.__class__.__name__, key))
 
     for ext_num, ext_val in dict_value.get(EXTENSION_CONTAINER, {}).items():
         try:
