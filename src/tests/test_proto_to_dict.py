@@ -4,6 +4,7 @@ from protobuf_to_dict import *
 import base64
 import nose.tools
 import json
+import codecs
 
 
 class Test(unittest.TestCase):
@@ -12,7 +13,6 @@ class Test(unittest.TestCase):
         m = self.populate_MessageOfTypes()
         d = protobuf_to_dict(m)
         self.compare(m, d, ['nestedRepeated'])
-
         m2 = dict_to_protobuf(MessageOfTypes, d)
         assert m == m2
 
@@ -115,7 +115,7 @@ class Test(unittest.TestCase):
         m.nested.req = "req"
         m.enm = MessageOfTypes.C  # @UndefinedVariable
         m.enmRepeated.extend([MessageOfTypes.A, MessageOfTypes.C])
-        m.range.extend(range(10))
+        m.range.extend(list(range(10)))
         return m
 
     def compare(self, m, d, exclude=None):
@@ -126,7 +126,7 @@ class Test(unittest.TestCase):
                 assert field.name in d, field.name
                 assert d[field.name] == getattr(m, field.name), (field.name, d[field.name])
         assert i > 0
-        assert m.byts == base64.b64decode(d['byts'])
+        assert m.byts == codecs.decode(d['byts'],"base64")
         assert d['nested'] == {'req': m.nested.req}
 
     def test_extensions(self):
@@ -134,26 +134,26 @@ class Test(unittest.TestCase):
 
         primitives = {extDouble: 123.4, extString: "string", NestedExtension.extInt: 4}
 
-        for key, value in primitives.items():
+        for key, value in list(primitives.items()):
             m.Extensions[key] = value
         m.Extensions[NestedExtension.extNested].req = "nested"
 
         # Confirm compatibility with JSON serialization
         res = json.loads(json.dumps(protobuf_to_dict(m)))
-        expected = {u'___X': {u'100': 123.4,
-                              u'101': u'string',
-                              u'102': 4,
-                              u'103': {u'req': u'nested'}}}
+        expected = {'___X': {'100': 123.4,
+                              '101': 'string',
+                              '102': 4,
+                              '103': {'req': 'nested'}}}
         self.assertEqual(expected, res)
         exts = res['___X']
         assert set(exts.keys()) == set([str(f.number) for f, _ in m.ListFields() if f.is_extension])
-        for key, value in primitives.items():
+        for key, value in list(primitives.items()):
             assert exts[str(key.number)] == value
         assert exts[str(NestedExtension.extNested.number)]['req'] == 'nested'
 
         deser = dict_to_protobuf(MessageOfTypes, res)
         assert deser
-        for key, value in primitives.items():
+        for key, value in list(primitives.items()):
             assert deser.Extensions[key] == m.Extensions[key]
         assert deser.Extensions[NestedExtension.extNested].req == m.Extensions[NestedExtension.extNested].req
 
@@ -162,25 +162,25 @@ class Test(unittest.TestCase):
 
         primitives = {extDouble: 123.4, extString: "string", NestedExtension.extInt: 4}
 
-        for key, value in primitives.items():
+        for key, value in list(primitives.items()):
             m.Extensions[key] = value
         m.Extensions[NestedExtension.extNested].req = "nested"
 
         # Confirm compatibility with JSON serialization
         res = json.loads(json.dumps(protobuf_to_dict(m, extensions=SHORT_EXTENSIONS)))
-        expected = {u'extDouble': 123.4,
-                    u'extInt': 4,
-                    u'extNested': {u'req': u'nested'},
-                    u'extString': u'string'}
+        expected = {'extDouble': 123.4,
+                    'extInt': 4,
+                    'extNested': {'req': 'nested'},
+                    'extString': 'string'}
         self.assertEqual(expected, res)
         self.assertEqual(set(res.keys()), set([str(f.name) for f, _ in m.ListFields() if f.is_extension]))
-        for key, value in primitives.items():
+        for key, value in list(primitives.items()):
             assert res[key.name] == value
         assert res[str(NestedExtension.extNested.name)]['req'] == 'nested'
 
         deser = dict_to_protobuf(MessageOfTypes, res)
         assert deser
-        for key, value in primitives.items():
+        for key, value in list(primitives.items()):
             assert deser.Extensions[key] == m.Extensions[key]
         assert deser.Extensions[NestedExtension.extNested].req == m.Extensions[NestedExtension.extNested].req
 
@@ -189,24 +189,24 @@ class Test(unittest.TestCase):
 
         primitives = {extDouble: 123.4, extString: "string", NestedExtension.extInt: 4}
 
-        for key, value in primitives.items():
+        for key, value in list(primitives.items()):
             m.Extensions[key] = value
         m.Extensions[NestedExtension.extNested].req = "nested"
 
         # Confirm compatibility with JSON serialization
         res = json.loads(json.dumps(protobuf_to_dict(m, extensions=FULL_EXTENSIONS)))
-        expected = {u'tests.extDouble': 123.4,
-                    u'tests.NestedExtension.extInt': 4,
-                    u'tests.NestedExtension.extNested': {u'req': u'nested'},
-                    u'tests.extString': u'string'}
+        expected = {'tests.extDouble': 123.4,
+                    'tests.NestedExtension.extInt': 4,
+                    'tests.NestedExtension.extNested': {'req': 'nested'},
+                    'tests.extString': 'string'}
         self.assertEqual(expected, res)
         self.assertEqual(set(res.keys()), set([str(f.full_name) for f, _ in m.ListFields() if f.is_extension]))
-        for key, value in primitives.items():
+        for key, value in list(primitives.items()):
             assert res[key.full_name] == value
         assert res[str(NestedExtension.extNested.full_name)]['req'] == 'nested'
 
         deser = dict_to_protobuf(MessageOfTypes, res)
         assert deser
-        for key, value in primitives.items():
+        for key, value in list(primitives.items()):
             assert deser.Extensions[key] == m.Extensions[key]
         assert deser.Extensions[NestedExtension.extNested].req == m.Extensions[NestedExtension.extNested].req
